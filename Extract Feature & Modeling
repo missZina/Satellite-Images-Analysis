@@ -1,0 +1,119 @@
+import tensorflow as tf
+import numpy as np
+
+import pandas as pd
+
+import time
+from os import listdir, environ
+from os.path import isfile, join
+
+# to allocate only one GPU for this notebook (I have two on board)
+# environ["CUDA_VISIBLE_DEVICES"]="0" 
+
+from keras.applications.resnet50 import ResNet50
+from keras.preprocessing import image
+from keras.applications.resnet50 import preprocess_input, decode_predictions
+
+
+from sklearn.model_selection import train_test_split
+from sklearn.metrics import accuracy_score, confusion_matrix, precision_score, f1_score, recall_score
+from sklearn.externals import joblib
+
+from xgboost import XGBClassifier
+#ResNet50 model
+positive_img_path =  "positive/"  # where to find positive examples (images with amber extraction footprints ) 
+negative_img_path =  negative/"  # where to find negative examples
+# list of positive and negative filenames
+positive_files = [join(positive_img_path, f) for f in listdir(positive_img_path) if isfile(join(positive_img_path, f))] # list of image names with positive examples
+negative_files = [join(negative_img_path, f) for f in listdir(negative_img_path) if isfile(join(negative_img_path, f))] # list of image names with negative examples
+
+resnet = ResNet50(weights='imagenet', include_top=False) # load ResNet50
+#Feature extraction
+def extract_features(img_paths, batch_size=64):
+    """ This function extracts image features for each image in img_paths using ResNet50 penultimate layer.
+        Returned features is a numpy array with shape (len(img_paths), 2048).
+    """
+    global resnet
+    n = len(img_paths) # num of images in img_paths
+    img_array = np.zeros((n, 224, 224, 3))
+    
+    for i, path in enumerate(img_paths):
+        img = image.load_img(path, target_size=(224, 224))  # load and scale each image to 224x224 size
+        img = image.img_to_array(img)
+        img = preprocess_input(img)
+        img_array[i] = img
+    
+    X = resnet.predict(img_array, batch_size=batch_size, verbose=1)
+    X = X.reshape((n, 100352))
+    return X
+
+# features for our two types of labels
+positives_ = extract_features(positive_files)
+negatives_ = extract_features(negative_files)
+# Create dataframe from two types of features, for positive images(with amber mining footprints) and 
+# negative(without mining) 
+
+def create_df(feature_vectors, label, img_paths):
+    """ create panda df. Each row in df consists of features, label and path to corresponding image """
+    feat_cols = [ 'feature'+str(i) for i in range(feature_vectors.shape[1]) ] # column names for elements of feature vector
+    df = pd.DataFrame(feature_vectors,columns=feat_cols)
+    df['label'] = label # add column with labels
+    df['path'] = img_paths # add column with img paths
+    return df
+
+df1 = create_df(positives_, "positive", positive_files)
+df2 = create_df(negatives_, "negative", negative_files)
+df = df1.append(df2)
+print ('Size of the dataframe: {}'.format(df.shape))
+
+# in case you want to save features for later use, uncomment line below
+# df.to_csv("features_backup.csv",  index = False)
+### START HERE if you don't want to calculate features from images: instead, get it from backup
+df = pd.read_csv("features_backup.csv")
+#df.head(10)
+X = df.iloc[:,0:2048].values  # numeric feature values for each image
+Y = df.iloc[:, 2048].values   # labels for each image
+tiles = df["path"].values     # path to image files 
+
+# split each list to test and train parts 
+X_train, X_test, Y_train, Y_test, tiles_train, tiles_test = train_test_split(X, Y, tiles, test_size = 0.3, 
+                                                                             random_state = 43)
+
+# Just print all evaluation scores from one place
+def evaluate(Y_test, Y_pred):
+    accuracy = accuracy_score(Y_test, Y_pred)
+    print("\nModel Performance")
+    print('Accuracy = {:0.2f}%.'.format(accuracy))
+    print(confusion_matrix(Y_test, Y_pred))
+    print("\nprecision:")
+    print(precision_score(Y_test, Y_pred, pos_label = "positive"))
+    print("\nrecall:")
+    print(recall_score(Y_test, Y_pred, pos_label = "positive"))
+    print("\nf1:")
+    print(f1_score(Y_test, Y_pred, pos_label = "positive") ) 
+    return accuracy
+    
+    clf = XGBClassifier( learning_rate =0.01,
+                     n_estimators=5000,
+                     max_depth=4,
+                     min_child_weight=6,
+                     gamma=0,
+                     subsample=0.8,
+                     colsample_bytree=0.8,
+                     reg_alpha=0.005,
+                     objective= 'binary:logistic',
+                     nthread=7,
+                     scale_pos_weight=1,seed=27)
+                   
+#clf.fit(X_train, Y_train)
+
+
+# to save a model, uncomment this
+# joblib.dump(clf, 'versions/xgb_model.pkl')
+
+# you can load actual production model from this file, uncomment line below:
+clf = joblib.load( '/content/drive/My Drive/xgb_model_v003.pkl')
+#Model evaluation
+
+Y_pred = clf.predict(X_test) 
+evaluate(Y_test, Y_pred)
