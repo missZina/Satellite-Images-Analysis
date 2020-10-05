@@ -1,0 +1,35 @@
+#Split map tile to "superpixels
+import matplotlib.pyplot as plt
+import numpy as np
+
+from skimage import io
+from skimage.segmentation import slic # how to split an image
+from skimage.segmentation import mark_boundaries
+from skimage.util import img_as_float
+from scipy import misc
+
+from scipy import ndimage
+from PIL import Image
+from skimage.measure import regionprops
+
+from os import listdir
+from os.path import isfile, join
+#Get image, split it to superpixels(~30 segments), mark boundaries with yellow color
+img_path = "/content/drive/My Drive/satellite image annaba & algeria/" # images to classify
+name = "3D satellite map annaba.jpg"
+full_name = join(img_path, name)
+
+img = io.imread(full_name) # image as numpy array
+original_image = Image.fromarray(img.astype('uint8'), 'RGB')  # same image as PIL object
+img = img_as_float(img) # convert to float, to use for segmentation purposes
+
+segments_slic = slic(img, n_segments=30, compactness=35, sigma=1) # segmentation to superpixels
+
+marked_img = mark_boundaries(img, segments_slic)
+#
+fig, (ax1, ax2) = plt.subplots(1,2, figsize = (10, 5))
+ax1.imshow(img)
+ax1.set_title('original image')
+_ = ax2.imshow(marked_img)
+ax2.set_title('Segmented image')
+#
