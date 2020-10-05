@@ -1,0 +1,25 @@
+from IPython.display import Image
+import rasterio
+import skimage
+import os
+import pathlib
+import math
+from skimage import exposure
+import matplotlib.pyplot as plt
+import matplotlib.image as mpimg
+import numpy as np
+import pandas as pd
+from rasterio.plot import show
+from osgeo import gdal
+# Load weither satellite images 4-band analytic-sr image
+filename = "image 30-08/3Dasiasec_ctbtCloud.jpg"
+# Save the image name for later filenaming use
+image_name = '20180410_020422_0f31'
+# Load image
+image = rasterio.open(filename)
+# Scale variable. Note bands of Planet imagery go BGR
+image_rgb = exposure.rescale_intensity(image.read((3,2,1)), out_range='uint8')
+# Plot image
+show(image_rgb)
+# Plot mask band
+show(image.read(3)) # lines mask
